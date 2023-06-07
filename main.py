@@ -38,9 +38,9 @@ def extract_points(file_path):
 if __name__ == '__main__':
 
     file_path = '20586908.xml'
-    #polygon = extract_points(file_path)
-    coordinates = ([1000, 1000], [2000,500], [2000, 1500])
-    polygon = np.array(coordinates)
+    polygon = extract_points(file_path)
+    #coordinates = ([1000, 1000], [2000,500], [2000, 1500])
+    #polygon = np.array(coordinates)
     # create a black image
     image = np.ones((3000, 3000, 3), dtype=np.uint8)
     image = 255 * image
