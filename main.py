@@ -124,6 +124,7 @@ def process_dataset():
                 im.save(mask_file_path)
 
                 data.append([png_file_path,mask_file_path])
+                print('Processed',dicom_file.name,'with',len(coords),'roi(s)')
 
     pd.DataFrame(data, columns=['image_path', 'mask_path']).to_csv(args.csv_dataset_path)
 
