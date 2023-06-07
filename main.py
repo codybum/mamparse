@@ -1,56 +1,140 @@
-import numpy
+import argparse
+import os
+import shutil
+from pathlib import Path
+
+import pydicom
 from bs4 import BeautifulSoup
 import numpy as np
 import matplotlib.pyplot as plt
-from numpy import ma
 from skimage.draw import polygon2mask
+from PIL import Image
+import pydicom as dicom
 
 def extract_points(file_path):
 
-    coord = []
+    coords = dict()
 
     with open(file_path, 'r') as f:
         data = f.read()
 
-    Bs_data = BeautifulSoup(data, "xml")
+    xml_data = BeautifulSoup(data, "xml")
+    annotations = xml_data.find('array').find('dict').find('array').findAll('dict')
 
-    d = Bs_data.find('array')
-    d = d.find('dict')
-    d = d.find('array')
 
-    b_unique = d.findAll('dict')
+    for annotation in annotations:
 
-    for page in b_unique:
-        d = page.findAll('key')
-        for dd in d:
-            if 'Point_px' == dd.get_text():
-                #print(dd)
-                ddd = dd.find_next_siblings('array')
-                dddd = ddd[0].find('string')
-                ddddd = dddd.get_text().replace('(','').replace(')','').replace(' ','').split(',')
-                x = float(ddddd[0])
-                y = float(ddddd[1])
-                c = [y,x]
-                coord.append(c)
+        save_coord = False
+        index = None
 
-    return np.array(coord)
+        keys = annotation.findAll('key')
+        for key in keys:
+
+            if 'IndexInImage' == key.get_text():
+                index = int(key.find_next_siblings('integer')[0].get_text())
+
+            if 'NumberOfPoints' == key.get_text():
+                number_of_points = int(key.find_next_siblings('integer')[0].get_text())
+                if number_of_points >= args.min_coord_size:
+                    save_coord = True
+
+            if save_coord:
+                if 'Point_px' == key.get_text():
+                    coord_array = key.find_next_siblings('array')[0].findAll('string')
+                    for coord_str in coord_array:
+                        coord_str = coord_str.get_text().replace('(', '').replace(')', '').replace(' ', '').split(',')
+                        x = float(coord_str[0])
+                        y = float(coord_str[1])
+                        coord = [y, x]
+                        if index not in coords:
+                            coords[index] = []
+                        coords[index].append(coord)
+
+    return coords
+
+def getmask(image,coord):
+
+    mask = polygon2mask(image.shape, np.array(coord))
+    mask = mask.astype(np.uint8) * 255
+    return mask
+
+def addmask(image,coords):
+
+    combined = None
+    for id, coord in coords.items():
+
+        mask = getmask(image,coord)
+
+        if combined is not None:
+            combined = combined + mask
+        else:
+            combined = mask
+
+    return combined
+
+def get_image(dicom_file_path, png_file_path):
+
+    ds = pydicom.dcmread(dicom_file_path)
+    new_image = ds.pixel_array.astype(float)
+    scaled_image = (np.maximum(new_image, 0) / new_image.max()) * 255.0
+    scaled_image = np.uint8(scaled_image)
+    final_image = Image.fromarray(scaled_image)
+    width, height = final_image.size
+    final_image.save(png_file_path)
+
+    return width, height
+
+def clear_output():
+
+    if os.path.exists(args.image_dataset_path):
+        shutil.rmtree(args.image_dataset_path)
+    os.makedirs(args.image_dataset_path)
+
+    if os.path.exists(args.mask_dataset_path):
+        shutil.rmtree(args.mask_dataset_path)
+    os.makedirs(args.mask_dataset_path)
+
+
+def process_dataset():
+
+    clear_output()
+
+    dicom_files = list(Path(args.dicom_dataset_path).rglob("*.dcm"))
+    for dicom_file in dicom_files:
+        xml_file_name = dicom_file.name.split('_')[0] + '.xml'
+        xml_file_path = os.path.join(args.xml_dataset_path,xml_file_name)
+        if os.path.isfile(xml_file_path):
+            coords = extract_points(xml_file_path)
+            if len(coords) > 0:
+                png_file_name = dicom_file.stem + '.png'
+                png_file_path = os.path.join(args.image_dataset_path,png_file_name)
+
+                mask_file_name = dicom_file.stem + '_mask.png'
+                mask_file_path = os.path.join(args.mask_dataset_path, mask_file_name)
+
+                dicom_file_path = dicom_file.resolve()
+                width, height = get_image(dicom_file_path, png_file_path)
+
+                image = np.ones((width, height, 3), dtype=np.uint8)
+                image = 255 * image
+
+                combined_mask = addmask(image, coords)
+
+                im = Image.fromarray(combined_mask)
+                im.save(mask_file_path)
+
 
 if __name__ == '__main__':
 
-    file_path = '20586908.xml'
-    polygon = extract_points(file_path)
-    #coordinates = ([1000, 1000], [2000,500], [2000, 1500])
-    #polygon = np.array(coordinates)
-    # create a black image
-    image = np.ones((3000, 3000, 3), dtype=np.uint8)
-    image = 255 * image
+    parser = argparse.ArgumentParser(description='INbreast Parser')
+    parser.add_argument('--dicom_dataset_path', type=str, default='dicom', help='name of project')
+    parser.add_argument('--xml_dataset_path', type=str, default='xml', help='name of project')
+    parser.add_argument('--image_dataset_path', type=str, default='image', help='name of project')
+    parser.add_argument('--mask_dataset_path', type=str, default='mask', help='name of project')
 
-    mask = polygon2mask(image.shape, polygon)
-    mask = mask.astype(np.uint8) * 255
-    #result = ma.masked_array(image, np.invert(mask))
-    #print(f'{result.shape=} {np.min(result)=} {np.max(result)=}')
-    print(f'{mask.shape=} {np.min(mask)=} {np.max(mask)=}')
-    #plt.imshow(result)
-    plt.imshow(mask)
-    #plt.imshow(image)
-    plt.show()
+    parser.add_argument('--min_coord_size', type=int, default=3, help='name of project')
+
+    # get args
+    args = parser.parse_args()
+
+    process_dataset()
