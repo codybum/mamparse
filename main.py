@@ -9,6 +9,20 @@ from PIL import Image
 import numpy as np
 import pandas as pd
 
+def shoelace(x_y):
+    x_y = np.array(x_y)
+    x_y = x_y.reshape(-1,2)
+
+    x = x_y[:,0]
+    y = x_y[:,1]
+
+    S1 = np.sum(x*np.roll(y,-1))
+    S2 = np.sum(y*np.roll(x,-1))
+
+    area = .5*np.absolute(S1 - S2)
+
+    return area
+
 def extract_points(file_path):
 
     coords = dict()
@@ -24,6 +38,7 @@ def extract_points(file_path):
 
         save_coord = False
         index = None
+        annotation_type = None
 
         keys = annotation.findAll('key')
         for key in keys:
@@ -31,12 +46,15 @@ def extract_points(file_path):
             if 'IndexInImage' == key.get_text():
                 index = int(key.find_next_siblings('integer')[0].get_text())
 
+            if 'Name' == key.get_text():
+                annotation_type = key.find_next_siblings('string')[0].get_text()
+
             if 'NumberOfPoints' == key.get_text():
                 number_of_points = int(key.find_next_siblings('integer')[0].get_text())
                 if number_of_points >= args.min_coord_size:
                     save_coord = True
 
-            if save_coord:
+            if save_coord and (annotation_type in args.annotation_types):
                 if 'Point_px' == key.get_text():
                     coord_array = key.find_next_siblings('array')[0].findAll('string')
                     for coord_str in coord_array:
@@ -47,6 +65,9 @@ def extract_points(file_path):
                         if index not in coords:
                             coords[index] = []
                         coords[index].append(coord)
+
+                    if shoelace(coords[index]) < args.min_coord_area:
+                        del coords[index]
 
     return coords
 
@@ -106,6 +127,7 @@ def process_dataset():
         if os.path.isfile(xml_file_path):
             coords = extract_points(xml_file_path)
             if len(coords) > 0:
+
                 png_file_name = dicom_file.stem + '.png'
                 png_file_path = os.path.join(args.image_dataset_path,png_file_name)
 
@@ -137,7 +159,9 @@ if __name__ == '__main__':
     parser.add_argument('--mask_dataset_path', type=str, default='dataset/mask', help='name of project')
     parser.add_argument('--csv_dataset_path', type=str, default='dataset.csv', help='name of project')
 
+    parser.add_argument('--annotation_types',default=['Mass'], nargs='+',help='list of implemented models')
     parser.add_argument('--min_coord_size', type=int, default=3, help='name of project')
+    parser.add_argument('--min_coord_area', type=int, default=1000, help='name of project')
 
     # get args
     args = parser.parse_args()
