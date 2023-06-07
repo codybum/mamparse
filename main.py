@@ -2,14 +2,12 @@ import argparse
 import os
 import shutil
 from pathlib import Path
-
 import pydicom
 from bs4 import BeautifulSoup
-import numpy as np
-import matplotlib.pyplot as plt
 from skimage.draw import polygon2mask
 from PIL import Image
-import pydicom as dicom
+import numpy as np
+import pandas as pd
 
 def extract_points(file_path):
 
@@ -97,6 +95,8 @@ def clear_output():
 
 def process_dataset():
 
+    data = []
+
     clear_output()
 
     dicom_files = list(Path(args.dicom_dataset_path).rglob("*.dcm"))
@@ -115,7 +115,7 @@ def process_dataset():
                 dicom_file_path = dicom_file.resolve()
                 width, height = get_image(dicom_file_path, png_file_path)
 
-                image = np.ones((width, height, 3), dtype=np.uint8)
+                image = np.ones((height, width, 3), dtype=np.uint8)
                 image = 255 * image
 
                 combined_mask = addmask(image, coords)
@@ -123,14 +123,18 @@ def process_dataset():
                 im = Image.fromarray(combined_mask)
                 im.save(mask_file_path)
 
+                data.append([png_file_path,mask_file_path])
+
+    pd.DataFrame(data, columns=['image_path', 'mask_path']).to_csv(args.csv_dataset_path)
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='INbreast Parser')
     parser.add_argument('--dicom_dataset_path', type=str, default='dicom', help='name of project')
     parser.add_argument('--xml_dataset_path', type=str, default='xml', help='name of project')
-    parser.add_argument('--image_dataset_path', type=str, default='image', help='name of project')
-    parser.add_argument('--mask_dataset_path', type=str, default='mask', help='name of project')
+    parser.add_argument('--image_dataset_path', type=str, default='dataset/image', help='name of project')
+    parser.add_argument('--mask_dataset_path', type=str, default='dataset/mask', help='name of project')
+    parser.add_argument('--csv_dataset_path', type=str, default='dataset.csv', help='name of project')
 
     parser.add_argument('--min_coord_size', type=int, default=3, help='name of project')
 
